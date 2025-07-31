@@ -3,15 +3,20 @@ uvicorn==0.27.1
 pydantic==1.10.13
 requests==2.31.0
 
-langchain-core==0.2.15  # try 0.2.13 or 0.2.15
-langchain-community==0.0.41
+# LangChain ecosystem compatible set as of mid-2025
+langchain-core==0.2.15
+langchain-community==0.2.19
 langchain-text-splitters==0.0.7
 langchain-together==0.1.5
+
 chromadb==0.4.24
 langchain-chroma==0.1.4
+
 unstructured==0.12.5
 unstructured[pdf]==0.12.5
+
 python-multipart==0.0.6
 python-magic>=0.4.15
+
 httpx==0.26.0
 fastembed==0.2.7
