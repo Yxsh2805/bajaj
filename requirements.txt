@@ -6,7 +6,7 @@ requests==2.31.0
 # LangChain ecosystem compatible set as of mid-2025
 langchain-core==0.2.15
 langchain-community==0.2.19
-langchain-text-splitters==0.2.9
+langchain-text-splitters==0.3.0
 langchain-together==0.1.5
 
 chromadb==0.4.24
