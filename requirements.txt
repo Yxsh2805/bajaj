@@ -3,7 +3,7 @@ uvicorn==0.27.1
 pydantic==1.10.13
 requests==2.31.0
 
-langchain-core==0.2.14
+langchain-core==0.2.15  # try 0.2.13 or 0.2.15
 langchain-community==0.0.41
 langchain-text-splitters==0.0.7
 langchain-together==0.1.5
