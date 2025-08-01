@@ -3,10 +3,10 @@ import time
 import logging
 import hashlib
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 # RAG imports
@@ -22,9 +22,6 @@ from langchain_chroma import Chroma
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-# Expected Bearer token for authentication
-EXPECTED_TOKEN = "5aa05ad358e859e92978582cde20423149f28beb49da7a2bbb487afa8fce1be8"
 
 # ----- Request/Response Models -----
 class QuestionRequest(BaseModel):
@@ -60,7 +57,7 @@ class OptimizedRAGEngine:
             
         logger.info("Initializing optimized RAG engine...")
         
-        # Set environment variables
+        # Set environment variables (hardcoded here, consider using env vars in prod)
         os.environ["TOGETHER_API_KEY"] = "deb14836869b48e01e1853f49381b9eb7885e231ead3bc4f6bbb4a5fc4570b78"
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
         os.environ["LANGCHAIN_API_KEY"] = "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"
@@ -286,15 +283,6 @@ Context: {context}"""),
 # Global RAG engine instance
 rag_engine = OptimizedRAGEngine()
 
-# ----- Token Verifier -----
-def verify_token(authorization: Optional[str] = Header(None)):
-    if authorization is None or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Authorization header missing or invalid format")
-    
-    token = authorization.split("Bearer ")[-1]
-    if token != EXPECTED_TOKEN:
-        raise HTTPException(status_code=403, detail="Invalid Bearer token")
-
 # ----- FastAPI App -----
 app = FastAPI(title="Optimized RAG Question Answering API", version="2.0.0")
 
@@ -309,10 +297,7 @@ async def startup_event():
         raise
 
 @app.post("/hackrx/run", response_model=AnswerResponse)
-async def ask_questions(
-    request: QuestionRequest,
-    authorization: str = Depends(verify_token)
-):
+async def ask_questions(request: QuestionRequest):
     try:
         logger.info(f"Received request with {len(request.questions)} questions")
 
@@ -349,7 +334,7 @@ async def health_check():
     }
 
 @app.post("/clear-cache")
-async def clear_cache(authorization: str = Depends(verify_token)):
+async def clear_cache():
     """Clear document cache and old collections"""
     try:
         rag_engine.document_cache.clear()
