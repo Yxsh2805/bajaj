@@ -60,22 +60,11 @@ class OptimizedRAGEngine:
             
         logger.info("Initializing optimized RAG engine...")
         
-        # Load environment variables securely
-        together_api_key = os.getenv("TOGETHER_API_KEY")
-        langchain_tracing = os.getenv("LANGCHAIN_TRACING_V2", "false")
-        langchain_api_key = os.getenv("LANGCHAIN_API_KEY")
-        langchain_project = os.getenv("LANGCHAIN_PROJECT", "default-project")
-
-        # Validate required keys
-        if not together_api_key or not langchain_api_key:
-            raise ValueError("Missing required API keys in environment variables")
-
-        # Set for LangChain internal use
-        os.environ["TOGETHER_API_KEY"] = together_api_key
-        os.environ["LANGCHAIN_TRACING_V2"] = langchain_tracing
-        os.environ["LANGCHAIN_API_KEY"] = langchain_api_key
-        os.environ["LANGCHAIN_PROJECT"] = langchain_project
-
+        # Set environment variables
+        os.environ["TOGETHER_API_KEY"] = "deb14836869b48e01e1853f49381b9eb7885e231ead3bc4f6bbb4a5fc4570b78"
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_API_KEY"] = "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"
+        os.environ["LANGCHAIN_PROJECT"] = "chunking and rag bajaj"
 
         # Initialize LLM and embeddings with optimized settings
         self.chat_model = ChatTogether(
@@ -87,7 +76,7 @@ class OptimizedRAGEngine:
 
         # Initialize persistent client with optimized settings
         self.persistent_client = chromadb.PersistentClient(
-            path="/tmp/vectorstore_optimized",
+            path="/content/vectorstore_optimized",
             settings=chromadb.Settings(
                 anonymized_telemetry=False,
                 allow_reset=True
