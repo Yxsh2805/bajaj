@@ -3,10 +3,10 @@ import time
 import logging
 import hashlib
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Optional, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Depends
 from pydantic import BaseModel
 
 # RAG imports
@@ -22,6 +22,9 @@ from langchain_chroma import Chroma
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Expected Bearer token for authentication
+EXPECTED_TOKEN = "5aa05ad358e859e92978582cde20423149f28beb49da7a2bbb487afa8fce1be8"
 
 # ----- Request/Response Models -----
 class QuestionRequest(BaseModel):
@@ -57,39 +60,49 @@ class OptimizedRAGEngine:
             
         logger.info("Initializing optimized RAG engine...")
         
-        # Set environment variables (hardcoded here, consider using env vars in prod)
-        os.environ["TOGETHER_API_KEY"] = "deb14836869b48e01e1853f49381b9eb7885e231ead3bc4f6bbb4a5fc4570b78"
-        os.environ["LANGCHAIN_TRACING_V2"] = "true"
-        os.environ["LANGCHAIN_API_KEY"] = "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"
-        os.environ["LANGCHAIN_PROJECT"] = "chunking and rag bajaj"
+        try:
+            # Set environment variables - prefer env vars over hardcoded values
+            os.environ["TOGETHER_API_KEY"] = os.getenv("TOGETHER_API_KEY", "deb14836869b48e01e1853f49381b9eb7885e231ead3bc4f6bbb4a5fc4570b78")
+            os.environ["LANGCHAIN_TRACING_V2"] = os.getenv("LANGCHAIN_TRACING_V2", "true")
+            os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY", "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")
+            os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "chunking and rag bajaj")
 
-        # Initialize LLM and embeddings with optimized settings
-        self.chat_model = ChatTogether(
-            model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
-            temperature=0,  # Consistent outputs
-            max_tokens=4000  # Reasonable limit
-        )
-        self.embeddings = TogetherEmbeddings(model="BAAI/bge-base-en-v1.5")
-
-        # Initialize persistent client with optimized settings
-        self.persistent_client = chromadb.PersistentClient(
-            path="/tmp/vectorstore_optimized",
-            settings=chromadb.Settings(
-                anonymized_telemetry=False,
-                allow_reset=True
+            # Initialize LLM and embeddings with optimized settings
+            logger.info("Initializing LLM and embeddings...")
+            self.chat_model = ChatTogether(
+                model="meta-llama/Llama-3.3-70B-Instruct-Turbo-Free",
+                temperature=0,  # Consistent outputs
+                max_tokens=4000  # Reasonable limit
             )
-        )
+            self.embeddings = TogetherEmbeddings(model="BAAI/bge-base-en-v1.5")
+            logger.info("LLM and embeddings initialized successfully")
 
-        # Optimized text splitter
-        self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,  # Larger chunks = fewer embeddings
-            chunk_overlap=100,  # Reduced overlap
-            separators=["\n\n", "\n", ". ", " ", ""]
-        )
+            # Initialize persistent client with optimized settings
+            # Use relative path for cloud deployment compatibility
+            vectorstore_path = os.path.join(os.getcwd(), "vectorstore_optimized")
+            os.makedirs(vectorstore_path, exist_ok=True)
+            
+            logger.info(f"Initializing ChromaDB at: {vectorstore_path}")
+            self.persistent_client = chromadb.PersistentClient(
+                path=vectorstore_path,
+                settings=chromadb.Settings(
+                    anonymized_telemetry=False,
+                    allow_reset=True,
+                    persist_directory=vectorstore_path
+                )
+            )
+            logger.info("ChromaDB initialized successfully")
 
-        # Optimized prompt template for batch processing
-        self.policy_prompt = ChatPromptTemplate([
-            ("system", """You are an expert insurance policy assistant. Answer questions concisely and accurately.
+            # Optimized text splitter
+            self.text_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=800,  # Larger chunks = fewer embeddings
+                chunk_overlap=100,  # Reduced overlap
+                separators=["\n\n", "\n", ". ", " ", ""]
+            )
+
+            # Optimized prompt template for batch processing
+            self.policy_prompt = ChatPromptTemplate([
+                ("system", """You are an expert insurance policy assistant. Answer questions concisely and accurately.
 
 CRITICAL FORMAT: Input questions are separated by " | ". Output answers MUST be separated by " | " in the same order.
 
@@ -99,12 +112,17 @@ Guidelines:
 - Cite specific policy terms when available
 - If unsure, state limitations clearly
 - Maintain exact order and use " | " separator between answers"""),
-            ("human", """Questions: {query}
+                ("human", """Questions: {query}
 Context: {context}"""),
-        ])
+            ])
 
-        self.initialized = True
-        logger.info("Optimized RAG engine initialized successfully")
+            self.initialized = True
+            logger.info("Optimized RAG engine initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize RAG engine: {str(e)}")
+            self.initialized = False
+            raise
 
     def build_chain(self, retriever):
         """Build optimized RAG chain"""
@@ -135,24 +153,38 @@ Context: {context}"""),
         logger.info(f"Loading document: {url}")
         start_time = time.time()
         
-        # Load document
-        loader = UnstructuredURLLoader(urls=[url])
-        docs = loader.load()
-        
-        # Split into chunks
-        chunks = self.text_splitter.split_documents(docs)
-        
-        load_time = time.time() - start_time
-        logger.info(f"Document loaded and chunked in {load_time:.2f}s ({len(chunks)} chunks)")
-        
-        # Cache the result (limit cache size)
-        if len(self.document_cache) >= self.max_cache_size:
-            # Remove oldest entry
-            oldest_key = next(iter(self.document_cache))
-            del self.document_cache[oldest_key]
-        
-        self.document_cache[url] = (docs, chunks)
-        return docs, chunks
+        try:
+            # Load document with timeout and retry logic
+            loader = UnstructuredURLLoader(
+                urls=[url],
+                headers={"User-Agent": "Mozilla/5.0 (compatible; RAG-Bot/1.0)"}
+            )
+            docs = loader.load()
+            
+            if not docs:
+                raise ValueError("No documents loaded from URL")
+            
+            # Split into chunks
+            chunks = self.text_splitter.split_documents(docs)
+            
+            if not chunks:
+                raise ValueError("No chunks created from document")
+            
+            load_time = time.time() - start_time
+            logger.info(f"Document loaded and chunked in {load_time:.2f}s ({len(chunks)} chunks)")
+            
+            # Cache the result (limit cache size)
+            if len(self.document_cache) >= self.max_cache_size:
+                # Remove oldest entry
+                oldest_key = next(iter(self.document_cache))
+                del self.document_cache[oldest_key]
+            
+            self.document_cache[url] = (docs, chunks)
+            return docs, chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to load document from {url}: {str(e)}")
+            raise
 
     def _create_or_get_vectorstore(self, url: str, chunks: List) -> tuple:
         """Create vectorstore with optimized batch processing"""
@@ -283,6 +315,15 @@ Context: {context}"""),
 # Global RAG engine instance
 rag_engine = OptimizedRAGEngine()
 
+# ----- Token Verifier -----
+def verify_token(authorization: Optional[str] = Header(None)):
+    if authorization is None or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authorization header missing or invalid format")
+    
+    token = authorization.split("Bearer ")[-1]
+    if token != EXPECTED_TOKEN:
+        raise HTTPException(status_code=403, detail="Invalid Bearer token")
+
 # ----- FastAPI App -----
 app = FastAPI(title="Optimized RAG Question Answering API", version="2.0.0")
 
@@ -297,7 +338,10 @@ async def startup_event():
         raise
 
 @app.post("/hackrx/run", response_model=AnswerResponse)
-async def ask_questions(request: QuestionRequest):
+async def ask_questions(
+    request: QuestionRequest,
+    authorization: str = Depends(verify_token)
+):
     try:
         logger.info(f"Received request with {len(request.questions)} questions")
 
@@ -334,7 +378,7 @@ async def health_check():
     }
 
 @app.post("/clear-cache")
-async def clear_cache():
+async def clear_cache(authorization: str = Depends(verify_token)):
     """Clear document cache and old collections"""
     try:
         rag_engine.document_cache.clear()
