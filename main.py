@@ -76,7 +76,7 @@ class OptimizedRAGEngine:
 
         # Initialize persistent client with optimized settings
         self.persistent_client = chromadb.PersistentClient(
-            path="/content/vectorstore_optimized",
+            path="/tmp/vectorstore_optimized",
             settings=chromadb.Settings(
                 anonymized_telemetry=False,
                 allow_reset=True
